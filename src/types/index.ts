@@ -67,6 +67,23 @@ export interface SkillGapItem {
   recommendedAction: string;
 }
 
+export interface TaskSubmissionReview {
+  id: string;
+  taskId: string;
+  submittedCode: string;
+  explanationNotes?: string;
+  score: number; // 0-100
+  passed: boolean;
+  verdict: 'Exemplary' | 'Passed' | 'Needs Revision';
+  conceptMastery: string;
+  codeQuality: string;
+  edgeCases: string[];
+  suggestedImprovements: string;
+  modelSolutionSnippet?: string;
+  reviewedAt: string;
+  modelUsed: string;
+}
+
 export interface RoadmapTask {
   id: string;
   moduleId: string;
@@ -81,6 +98,9 @@ export interface RoadmapTask {
   resources: Array<{ title: string; url: string; type: 'doc' | 'video' | 'repo' }>;
   taskPrompt: string;
   solutionHint?: string;
+  starterCode?: string;
+  evaluationCriteria?: string[];
+  submission?: TaskSubmissionReview;
 }
 
 export interface RoadmapModule {

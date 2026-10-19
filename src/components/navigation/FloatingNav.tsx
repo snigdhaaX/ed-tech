@@ -26,6 +26,8 @@ import {
   UserCheck2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { ApiKeyModal } from './ApiKeyModal';
+import { hasConfiguredGeminiApiKey } from '../../services/geminiService';
 
 interface FloatingNavProps {
   onOpenSearch: () => void;
@@ -48,6 +50,8 @@ export const FloatingNav: React.FC<FloatingNavProps> = ({ onOpenSearch }) => {
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState(() => hasConfiguredGeminiApiKey());
 
   const moreRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
@@ -263,6 +267,22 @@ export const FloatingNav: React.FC<FloatingNavProps> = ({ onOpenSearch }) => {
               <kbd className="hidden lg:inline-block text-[10px] font-mono text-zinc-600 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-200">
                 ⌘K
               </kbd>
+            </button>
+
+            {/* Gemini API Key button */}
+            <button
+              onClick={() => setApiKeyModalOpen(true)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer ${
+                hasApiKey
+                  ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 shadow-xs'
+                  : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100/70'
+              }`}
+              title={hasApiKey ? 'Gemini AI: Live API Key Configured' : 'Configure Gemini API Key'}
+            >
+              <Sparkles className={`w-3.5 h-3.5 ${hasApiKey ? 'text-emerald-600' : 'text-indigo-600'}`} />
+              <span className="hidden sm:inline font-mono text-[11px]">
+                {hasApiKey ? 'Gemini Live' : 'Gemini Key'}
+              </span>
             </button>
 
             {/* Notifications Popover */}
@@ -495,6 +515,16 @@ export const FloatingNav: React.FC<FloatingNavProps> = ({ onOpenSearch }) => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Gemini API Key Configuration Modal */}
+      <ApiKeyModal
+        isOpen={apiKeyModalOpen}
+        onClose={() => {
+          setApiKeyModalOpen(false);
+          setHasApiKey(hasConfiguredGeminiApiKey());
+        }}
+        onKeyUpdated={() => setHasApiKey(hasConfiguredGeminiApiKey())}
+      />
     </>
   );
 };

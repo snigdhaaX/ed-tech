@@ -38,6 +38,8 @@ export interface UserProject {
 
   // Skills demonstrated by this project, ideally evaluator-verified.
   demonstratedSkills?: string[];
+  score?: number;
+  evaluatedAt?: string;
 }
 
 export interface CalculateReadinessParams {

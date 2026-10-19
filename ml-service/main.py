@@ -10,6 +10,7 @@ import pandas as pd
 from docx import Document
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -522,3 +523,53 @@ async def analyze_resume(
             500,
             "Resume analysis failed. Check the backend logs.",
         ) from exc
+
+
+class JobDescriptionAnalysisRequest(BaseModel):
+    jd_text: str
+    user_skills: list[str] = []
+
+
+@app.post("/api/analyze-jd")
+def analyze_job_description(request: JobDescriptionAnalysisRequest):
+    jd_text = request.jd_text.strip()
+    if not jd_text:
+        raise HTTPException(400, "Please provide job description text.")
+
+    try:
+        jobs, vectorizer, job_matrix, skill_patterns = load_job_index()
+        extracted = extract_resume_skills(jd_text, skill_patterns)
+
+        jd_vector = vectorizer.transform([jd_text])
+        similarities = cosine_similarity(jd_vector, job_matrix).ravel()
+        best_idx = int(similarities.argmax())
+        best_match_job = jobs.iloc[best_idx]
+
+        user_skill_set = {normalize(s) for s in request.user_skills}
+
+        matched = []
+        missing = []
+        for sk in extracted:
+            if normalize(sk) in user_skill_set:
+                matched.append(sk)
+            else:
+                missing.append(sk)
+
+        total = len(extracted) or 1
+        alignment = round((len(matched) / total) * 100)
+
+        recommended_focus = missing[0] if missing else (extracted[0] if extracted else "System Architecture")
+
+        return {
+            "alignment": alignment,
+            "extracted_count": len(extracted),
+            "extracted_skills": extracted,
+            "matched": matched,
+            "missing": missing,
+            "recommended_focus": recommended_focus,
+            "top_matching_job": str(best_match_job["Title"]),
+            "top_match_similarity": round(float(similarities[best_idx]) * 100, 1),
+        }
+    except Exception as exc:
+        raise HTTPException(500, f"JD analysis failed: {str(exc)}") from exc
+

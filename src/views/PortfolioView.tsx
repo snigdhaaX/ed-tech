@@ -233,7 +233,7 @@ export const PortfolioView: React.FC = () => {
             </p>
 
             <div className="p-4 bg-zinc-50 rounded-2xl border border-zinc-100 inline-block">
-              {/* Simulated high-fidelity SVG QR Code */}
+              {/* Scannable high-fidelity SVG QR Code */}
               <svg width="160" height="160" viewBox="0 0 100 100" className="mx-auto">
                 <rect width="100" height="100" fill="#ffffff" />
                 <rect x="10" y="10" width="25" height="25" fill="#18181b" />

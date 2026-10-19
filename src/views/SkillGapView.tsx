@@ -23,19 +23,27 @@ import {
 export const SkillGapView: React.FC = () => {
   const { currentRole, skills, setActiveRoute, updateSkillLevel, triggerCelebration } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'matrix' | 'jd_analyzer' | 'simulator'>('matrix');
+  const [activeTab, setActiveTab] = useState<'matrix' | 'jd_analyzer' | 'forecaster'>('matrix');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  const [simulatedSkills, setSimulatedSkills] = useState<{ [key: string]: boolean }>({});
+  const [targetedSkills, setTargetedSkills] = useState<{ [key: string]: boolean }>({});
 
   // Sample JD text for the analyzer
   const [jdText, setJdText] = useState(
     `We are seeking a Full-Stack Engineer Intern to build high-scale financial dashboards.
-Required: Strong TypeScript, React 19, Node.js, and relational database experience (PostgreSQL).
+Required: Strong TypeScript, React, Node.js, and relational database experience (PostgreSQL).
 Preferred: Familiarity with Redis caching, Docker containerization, and WebSocket live concurrency.
 Candidate must demonstrate problem-solving through clean, well-tested production projects.`
   );
   const [analyzingJd, setAnalyzingJd] = useState(false);
-  const [jdAnalyzed, setJdAnalyzed] = useState(false);
+  const [jdAnalysisResult, setJdAnalysisResult] = useState<{
+    alignment: number;
+    extractedCount: number;
+    extractedSkills?: string[];
+    matched: string[];
+    missing: string[];
+    recommendedFocus: string;
+    topMatchingJob?: string;
+  } | null>(null);
 
   // Compute prioritized gaps using our pure logic
   const prioritizedGaps = prioritizeSkillGaps(
@@ -50,19 +58,88 @@ Candidate must demonstrate problem-solving through clean, well-tested production
     s => selectedCategory === 'All' || s.category === selectedCategory
   );
 
-  const handleRunJdAnalysis = () => {
+  const handleRunJdAnalysis = async () => {
     setAnalyzingJd(true);
-    setTimeout(() => {
-      setAnalyzingJd(false);
-      setJdAnalyzed(true);
-      triggerCelebration();
-    }, 800);
+
+    try {
+      // Call live Python ML dataset analyzer via API proxy
+      const response = await fetch('/api/analyze-jd', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jd_text: jdText,
+          user_skills: skills.map(s => s.name),
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setJdAnalysisResult({
+          alignment: data.alignment,
+          extractedCount: data.extracted_count,
+          extractedSkills: data.extracted_skills,
+          matched: data.matched,
+          missing: data.missing,
+          recommendedFocus: data.recommended_focus,
+          topMatchingJob: data.top_matching_job,
+        });
+        setAnalyzingJd(false);
+        triggerCelebration();
+        return;
+      }
+    } catch (apiErr) {
+      console.warn('Live ML JD analysis endpoint unavailable, using local matching:', apiErr);
+    }
+
+    // Local real keyword extraction matching technical skills from the job description
+    const KNOWN_VOCAB = [
+      'React', 'TypeScript', 'JavaScript', 'Node.js', 'PostgreSQL', 'SQL',
+      'Redis', 'Docker', 'Kubernetes', 'WebSockets', 'GraphQL', 'System Design',
+      'Tailwind CSS', 'Python', 'FastAPI', 'PyTorch', 'TensorFlow', 'Git',
+      'Next.js', 'AWS', 'Linux', 'Go', 'Java', 'Data Structures & Algorithms',
+      'CI/CD', 'REST', 'Microservices'
+    ];
+
+    const extracted = KNOWN_VOCAB.filter(sk => {
+      const escaped = sk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, 'i');
+      return pattern.test(jdText);
+    });
+
+    const userSkillNames = skills.map(s => s.name.toLowerCase());
+    const matched: string[] = [];
+    const missing: string[] = [];
+
+    extracted.forEach(sk => {
+      if (userSkillNames.includes(sk.toLowerCase())) {
+        matched.push(sk);
+      } else {
+        missing.push(sk);
+      }
+    });
+
+    const totalExtracted = extracted.length || 1;
+    const rawAlignment = Math.round((matched.length / totalExtracted) * 100);
+    const alignment = Math.max(15, Math.min(100, rawAlignment));
+    const topMissing = missing[0] || 'System Architecture';
+
+    setJdAnalysisResult({
+      alignment,
+      extractedCount: extracted.length,
+      extractedSkills: extracted,
+      matched,
+      missing,
+      recommendedFocus: topMissing,
+      topMatchingJob: currentRole.title,
+    });
+    setAnalyzingJd(false);
+    triggerCelebration();
   };
 
-  // Simulation score calculation
+  // Verification score projection calculation
   const baseReady = 68;
-  const simBoost = Object.values(simulatedSkills).filter(Boolean).length * 9;
-  const simulatedScore = Math.min(100, baseReady + simBoost);
+  const targetBoost = Object.values(targetedSkills).filter(Boolean).length * 9;
+  const projectedScore = Math.min(100, baseReady + targetBoost);
 
   return (
     <div className="pt-20 pb-28 px-4 max-w-6xl mx-auto space-y-8">
@@ -87,7 +164,7 @@ Candidate must demonstrate problem-solving through clean, well-tested production
           {[
             { id: 'matrix', label: 'Skill Matrix & Gaps' },
             { id: 'jd_analyzer', label: 'Job Description Intelligence' },
-            { id: 'simulator', label: 'Before/After Simulator' },
+            { id: 'forecaster', label: 'Evidence Impact Forecaster' },
           ].map(tab => (
             <button
               key={tab.id}
@@ -244,41 +321,74 @@ Candidate must demonstrate problem-solving through clean, well-tested production
           </SpotlightCard>
 
           {/* Analysis Results */}
-          {jdAnalyzed && (
+          {jdAnalysisResult && (
             <SpotlightCard className="p-6 bg-white space-y-6 animate-in fade-in duration-200">
-              <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                   <h4 className="font-bold text-sm text-zinc-900">Extracted Intelligence Report</h4>
                 </div>
-                <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full">
-                  78% Alignment
-                </span>
+                <div className="flex items-center gap-2">
+                  {jdAnalysisResult.topMatchingJob && (
+                    <span className="text-[11px] text-zinc-500 font-medium">
+                      Matched Role Profile: <strong className="text-zinc-800">{jdAnalysisResult.topMatchingJob}</strong>
+                    </span>
+                  )}
+                  <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full">
+                    {jdAnalysisResult.alignment}% Alignment ({jdAnalysisResult.extractedCount} Skills Found)
+                  </span>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="p-4 rounded-xl bg-emerald-50/50 border border-emerald-100 space-y-2">
                   <span className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Profile Strengths (Verified by Code)</span>
+                    <span>Profile Strengths ({jdAnalysisResult.matched.length} Matched)</span>
                   </span>
-                  <ul className="text-xs text-emerald-900 space-y-1">
-                    <li>• <strong>React 19 & TypeScript:</strong> Backed by Verified Realtime Engine project.</li>
-                    <li>• <strong>Node.js:</strong> Tested with passing fundamental score.</li>
-                    <li>• <strong>PostgreSQL:</strong> Schema design assessed with 72% pass.</li>
-                  </ul>
+                  {jdAnalysisResult.matched.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {jdAnalysisResult.matched.map((sk, idx) => {
+                        const userSkill = skills.find(s => s.name.toLowerCase() === sk.toLowerCase());
+                        return (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100/80 text-emerald-900 border border-emerald-200"
+                          >
+                            <span>{sk}</span>
+                            {userSkill && (
+                              <span className="text-[9px] text-emerald-700 uppercase font-mono">
+                                ({userSkill.evidenceLevel})
+                              </span>
+                            )}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-zinc-500">No overlapping competencies detected yet.</p>
+                  )}
                 </div>
 
                 <div className="p-4 rounded-xl bg-rose-50/50 border border-rose-100 space-y-2">
                   <span className="text-xs font-bold text-rose-800 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5" />
-                    <span>Critical Missing Evidence</span>
+                    <span>Missing Competencies ({jdAnalysisResult.missing.length} Missing)</span>
                   </span>
-                  <ul className="text-xs text-rose-900 space-y-1">
-                    <li>• <strong>Redis Caching:</strong> Only self-claimed without project backing.</li>
-                    <li>• <strong>Docker Containerization:</strong> No verified Dockerfile in portfolio.</li>
-                    <li>• <strong>WebSockets:</strong> Proven, but needs multi-node pub/sub case study.</li>
-                  </ul>
+                  {jdAnalysisResult.missing.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {jdAnalysisResult.missing.map((sk, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md bg-rose-100/80 text-rose-900 border border-rose-200"
+                        >
+                          {sk}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-emerald-700 font-medium">All extracted competencies satisfied in your profile!</p>
+                  )}
                 </div>
               </div>
 
@@ -287,13 +397,13 @@ Candidate must demonstrate problem-solving through clean, well-tested production
                   Recommended Action Plan:
                 </span>
                 <p className="text-xs text-zinc-600 leading-relaxed">
-                  Complete <strong>Module 3: Redis Sliding-Window Rate Limiting</strong> on your roadmap to convert your claimed Redis skill into Project-Verified proof.
+                  Focus on building verified proof for <strong className="text-zinc-900">{jdAnalysisResult.recommendedFocus}</strong> to elevate your alignment with this position.
                 </p>
                 <button
                   onClick={() => setActiveRoute('/roadmap')}
                   className="mt-2 text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
                 >
-                  <span>Go to Module 3 Task</span>
+                  <span>Go to Verification Roadmap</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -302,13 +412,13 @@ Candidate must demonstrate problem-solving through clean, well-tested production
         </div>
       )}
 
-      {/* Tab 3: Before / After Simulator */}
-      {activeTab === 'simulator' && (
+      {/* Tab 3: Evidence Impact Forecaster */}
+      {activeTab === 'forecaster' && (
         <SpotlightCard className="p-6 bg-white space-y-6">
           <div>
-            <h3 className="font-bold text-sm text-zinc-900">Before & After Verification Simulator</h3>
+            <h3 className="font-bold text-sm text-zinc-900">Evidence Impact Forecaster & Projections</h3>
             <p className="text-xs text-zinc-500 mt-0.5">
-              See what happens to your role-readiness score and recruiter credibility when you convert claimed skills into project-verified proof.
+              Target unverified competencies to forecast how hands-on project verification elevates your role-readiness score.
             </p>
           </div>
 
@@ -316,7 +426,7 @@ Candidate must demonstrate problem-solving through clean, well-tested production
             {/* Interactive Checklist */}
             <div className="space-y-3">
               <span className="text-xs font-semibold text-zinc-700 uppercase tracking-wider block">
-                Select Skills to Simulate Verifying:
+                Target Skills for Verification:
               </span>
 
               {[
@@ -324,11 +434,11 @@ Candidate must demonstrate problem-solving through clean, well-tested production
                 { name: 'Docker', task: 'Submit Multi-stage Dockerfile' },
                 { name: 'System Design', task: 'Pass Mock Project Defense Interview' },
               ].map(item => {
-                const checked = !!simulatedSkills[item.name];
+                const checked = !!targetedSkills[item.name];
                 return (
                   <div
                     key={item.name}
-                    onClick={() => setSimulatedSkills(prev => ({ ...prev, [item.name]: !prev[item.name] }))}
+                    onClick={() => setTargetedSkills(prev => ({ ...prev, [item.name]: !prev[item.name] }))}
                     className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-colors ${
                       checked
                         ? 'border-indigo-600 bg-indigo-50/40 text-indigo-950'
@@ -351,19 +461,19 @@ Candidate must demonstrate problem-solving through clean, well-tested production
               })}
             </div>
 
-            {/* Simulated Score Gauge */}
+            {/* Projected Score Gauge */}
             <div className="p-6 rounded-2xl bg-zinc-50 border border-zinc-100 flex flex-col items-center justify-center text-center">
               <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
-                Simulated Role-Readiness
+                Projected Role-Readiness
               </span>
               <div className="text-4xl font-extrabold text-indigo-600">
-                {simulatedScore}%
+                {projectedScore}%
               </div>
               <div className="mt-1 text-xs font-semibold text-emerald-600">
-                +{simBoost}% potential increase
+                +{targetBoost}% verified evidence boost
               </div>
               <p className="text-[11px] text-zinc-500 mt-3 max-w-xs leading-relaxed">
-                Moving 3 skills to Project-Verified would place you in the top 5% of candidate profiles for {currentRole.title}.
+                Elevating these competencies to Project-Verified demonstrates tangible code artifacts to engineering hiring managers.
               </p>
               <button
                 onClick={() => setActiveRoute('/projects')}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { SpotlightCard } from '../components/ui/SpotlightCard';
 import {
@@ -21,6 +21,12 @@ export const OnboardingView: React.FC = () => {
   const { profile, updateProfile, roles, setTargetRole, setActiveRoute, triggerCelebration } = useApp();
   const [currentStep, setCurrentStep] = useState(1);
 
+  // Resume upload state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingResume, setIsUploadingResume] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
+  const [parsedResumeData, setParsedResumeData] = useState<any | null>(null);
+
   // Form state
   const [formData, setFormData] = useState({
     name: profile.name,
@@ -36,6 +42,49 @@ export const OnboardingView: React.FC = () => {
     githubUrl: profile.githubUrl,
     resumeText: '',
   });
+
+  const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingResume(true);
+    setResumeError(null);
+
+    const body = new FormData();
+    body.append('file', file);
+
+    try {
+      const res = await fetch('/api/analyze-resume', {
+        method: 'POST',
+        body,
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || `Server returned status ${res.status}`);
+      }
+
+      const data = await res.json();
+      setParsedResumeData(data);
+
+      // Merge real extracted skills with selected skills
+      if (data.extracted_profile?.skills?.length > 0) {
+        setFormData(prev => ({
+          ...prev,
+          selectedSkills: Array.from(new Set([...prev.selectedSkills, ...data.extracted_profile.skills])),
+          targetRoleId: data.recommended_role?.title
+            ? (roles.find(r => r.title.toLowerCase().includes(data.recommended_role.title.toLowerCase()) || data.recommended_role.title.toLowerCase().includes(r.title.toLowerCase()))?.id || prev.targetRoleId)
+            : prev.targetRoleId,
+        }));
+      }
+
+      triggerCelebration();
+    } catch (err: any) {
+      setResumeError(err.message || 'Failed to analyze resume with ML backend. Ensure the backend is reachable.');
+    } finally {
+      setIsUploadingResume(false);
+    }
+  };
 
   const availableSkills = [
     'Python', 'Java', 'JavaScript / ES6+', 'TypeScript', 'React',
@@ -335,19 +384,107 @@ export const OnboardingView: React.FC = () => {
                   />
                 </div>
 
-                <div className="p-4 rounded-xl border-2 border-dashed border-zinc-200 bg-zinc-50/50 text-center">
-                  <Upload className="w-6 h-6 text-zinc-400 mx-auto mb-1.5" />
-                  <span className="text-xs font-medium text-zinc-700 block">Upload PDF or DOCX Resume</span>
-                  <span className="text-[11px] text-zinc-400">Parsed securely on-device. Never published without consent.</span>
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      onClick={() => alert('Resume parser sample demo initialized. Extracted 5 skills and 1 project!')}
-                      className="px-3 py-1.5 rounded-lg bg-white border border-zinc-200 text-xs text-zinc-700 hover:bg-zinc-50 cursor-pointer"
-                    >
-                      Simulate Resume Upload
-                    </button>
-                  </div>
+                <div className="p-5 rounded-2xl border-2 border-dashed border-zinc-200 bg-zinc-50/50 text-center space-y-3">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept=".pdf,.docx"
+                    className="hidden"
+                    onChange={handleResumeUpload}
+                  />
+
+                  {!parsedResumeData ? (
+                    <div>
+                      <Upload className="w-8 h-8 text-indigo-500 mx-auto mb-2" />
+                      <span className="text-xs font-bold text-zinc-900 block">
+                        Upload Your PDF or DOCX Resume
+                      </span>
+                      <span className="text-[11px] text-zinc-500 block max-w-xs mx-auto mt-0.5">
+                        Our backend ML service extracts skills, detects sections, and matches your profile against 600KB+ job dataset.
+                      </span>
+
+                      {resumeError && (
+                        <div className="my-2 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs">
+                          {resumeError}
+                        </div>
+                      )}
+
+                      <div className="mt-3.5">
+                        <button
+                          type="button"
+                          disabled={isUploadingResume}
+                          onClick={() => fileInputRef.current?.click()}
+                          className="px-5 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-white text-xs font-semibold cursor-pointer disabled:opacity-50 transition-colors shadow-xs"
+                        >
+                          {isUploadingResume ? 'Analyzing with ML Model...' : 'Select Resume File (.pdf / .docx)'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Real ML Extracted Intelligence Card */
+                    <div className="space-y-4 text-left animate-in fade-in">
+                      <div className="flex items-center justify-between pb-2 border-b border-zinc-200">
+                        <div className="flex items-center gap-2">
+                          <Check className="w-4 h-4 text-emerald-600" />
+                          <span className="text-xs font-bold text-zinc-900">
+                            ML Model Analysis Complete: {parsedResumeData.filename}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setParsedResumeData(null);
+                            if (fileInputRef.current) fileInputRef.current.value = '';
+                          }}
+                          className="text-[11px] text-indigo-600 hover:underline"
+                        >
+                          Change File
+                        </button>
+                      </div>
+
+                      {/* Model Recommendation */}
+                      <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
+                            Top Dataset Match
+                          </span>
+                          <span className="text-xs font-bold text-emerald-950">
+                            {parsedResumeData.recommended_role?.title}
+                          </span>
+                          <span className="text-[11px] text-emerald-700 block mt-0.5">
+                            Cosine Similarity: {parsedResumeData.recommended_role?.match_score}% • Readiness: {parsedResumeData.readiness?.score}%
+                          </span>
+                        </div>
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-900">
+                          {parsedResumeData.recommended_role?.experience_level}
+                        </span>
+                      </div>
+
+                      {/* Extracted Skills */}
+                      <div>
+                        <span className="text-[11px] font-semibold text-zinc-700 block mb-1.5">
+                          Extracted Skills from Document ({parsedResumeData.extracted_profile?.skills?.length || 0}):
+                        </span>
+                        <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                          {parsedResumeData.extracted_profile?.skills?.map((sk: string, i: number) => (
+                            <span
+                              key={i}
+                              className="text-[10px] px-2 py-0.5 rounded-md bg-white border border-zinc-200 text-zinc-800 font-mono shadow-2xs"
+                            >
+                              ✓ {sk}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Sections Detected */}
+                      <div className="flex gap-4 text-[11px] text-zinc-600 pt-1">
+                        <span>Projects: {parsedResumeData.extracted_profile?.sections_detected?.projects ? '✓ Detected' : '—'}</span>
+                        <span>Experience: {parsedResumeData.extracted_profile?.sections_detected?.experience ? '✓ Detected' : '—'}</span>
+                        <span>Education: {parsedResumeData.extracted_profile?.sections_detected?.education ? '✓ Detected' : '—'}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.div>
