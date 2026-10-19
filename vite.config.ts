@@ -12,7 +12,7 @@ export default defineConfig(() => {
     },
     resolve: {
       alias: {
-        '@': path.resolve(import.meta.dirname, '.'),
+        '@': path.resolve(process.cwd(), '.'),
       },
     },
     envPrefix: ['VITE_', 'GEMINI_'],
