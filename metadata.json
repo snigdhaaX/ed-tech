@@ -1,0 +1,6 @@
+{
+  "name": "SkillProof - AI-Powered Career Growth & Skill Verification Platform",
+  "description": "Transform engineering skills into recruiter-ready proof with verified projects, gap analysis, adaptive roadmaps, and verifiable portfolios.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
